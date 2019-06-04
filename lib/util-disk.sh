@@ -134,6 +134,18 @@ find_partitions() {
     partition_list=$(lsblk -lno NAME,SIZE,TYPE | grep $INCLUDE_PART | sed 's/part$/\/dev\//g' | sed 's/lvm$\|crypt$/\/dev\/mapper\//g' | \
     awk '{print $3$1 " " $2}' | awk '!/mapper/{a[++i]=$0;next}1;END{while(x<length(a))print a[++x]}' ; zfs list -Ht volume -o name,volsize 2>/dev/null | awk '{printf "/dev/zvol/%s %s\n", $1, $2}')
 
+    # create a raid partition list
+    old_ifs="$IFS"
+    IFS=$'\n'
+    raid_partitions=($(lsblk -lno NAME,SIZE,TYPE | grep raid | awk '{print $1,$2}' | uniq))
+    IFS="$old_ifs"
+
+    # add raid partitions to partition_list
+    for i in "${raid_partitions[@]}"
+    do
+        partition_list="${partition_list} /dev/md/${i}"
+    done
+    
     for i in ${partition_list}; do
         PARTITIONS="${PARTITIONS} ${i}"
         NUMBER_PARTITIONS=$(( NUMBER_PARTITIONS + 1 ))
@@ -492,6 +504,72 @@ make_swap() {
         fi
     fi
     ini mount.swap "${PARTITION}"
+}
+
+raid_level_menu() {
+    declare -i loopmenu=1
+    while ((loopmenu)); do
+        RAID_OPT=""
+        DIALOG "RAID " --menu "\nSelect a RAID type.\n " 20 75 5 \
+	    "0" "disk striping" \
+        "1" "mirroring" \
+        "5" "distributed parity, (1 drive tolerance, requires 3 disks)" \
+        "10" "raid 1+0, (requires 4 disks)" \
+        "$_Back" "-" 2>${ANSWER}
+
+        case $(cat ${ANSWER}) in
+            "0") raid_array_menu 0
+                ;;
+            "1") raid_array_menu 1 
+                ;;
+            "5") raid_array_menu 5
+                ;; 
+	        "10") raid_array_menu 10
+		        ;;
+            *) loopmenu=0
+               return 0
+                ;;
+        esac
+    done
+}
+
+raid_create() {
+
+    RAID_DEVICES=${1}
+    RAID_DEVICE_NUMBER=$(echo ${1} | wc -w)
+    RAID_LEVEL=${2}
+
+    # creates the array
+    mdadm --create --verbose --level=${RAID_LEVEL} --metadata=1.2 --raid-devices=${RAID_DEVICE_NUMBER} /dev/md/md0 ${RAID_DEVICES}  
+        
+    # array is disassembled and reassembled to prevent the array from being named /dev/md/md
+    mdadm --detail --scan >> /etc/mdadm.conf
+    mdadm --stop /dev/md/md0
+    mdadm --assemble --scan
+
+}
+
+raid_array_menu() {
+
+    # Find LVM appropriate partitions.
+    INCLUDE_PART='part\|crypt'
+    umount_partitions
+    find_partitions
+    
+    # Amend partition(s) found for use in check list
+    PARTITIONS=$(echo $PARTITIONS | sed 's/M\|G\|T/& off/g')
+    RAID_LEVEL=${1}
+    
+    # Select the partition(s) for the Volume Group
+    echo "" > $ANSWER
+    while [[ $(cat ${ANSWER}) == "" ]]; do
+        DIALOG "Partion Select" --checklist "\nSelect the partitions you want to use for this RAID array.\n\n$_UseSpaceBar\n " 0 0 12 ${PARTITIONS} 2> ${ANSWER} 
+    done
+    
+    ANSWERS=$(cat ${ANSWER})
+
+    raid_create "${ANSWERS[@]}" ${RAID_LEVEL}
+    
 }
 
 luks_menu() {

@@ -308,6 +308,26 @@ install_base() {
 
             ;;
     esac
+    
+    # add mkinitcpio raid binary and hook, if root partition is on raid
+    if [[ $(lsblk -lno TYPE,MOUNTPOINT | grep -E "raid.*${MOUNTPOINT}" | wc -l)> 0 ]]; then
+
+        # auto assemble raid
+        mdadm --detail --scan >> ${MOUNTPOINT}/etc/mdadm.conf
+        
+        # add raid initramfs hook 
+        sed -i 's/\<block\>/& mdadm_udev/' ${MOUNTPOINT}/etc/mkinitcpio.conf
+        binaries_line_number=$(grep -n "^BINARIES=(" ${MOUNTPOINT}/etc/mkinitcpio.conf | cut -f1 -d':')
+	    sed -i "${binaries_line_number}s/^\(.\{10\}\)/\1mdmon/" ${MOUNTPOINT}/etc/mkinitcpio.conf
+	    
+	    # get newest kernel and initramfs
+	    newest_kernel=$(ls ${MOUNTPOINT}/lib/modules | grep '^[0-9]' | sort | tail -n 1)
+	    newest_initramfs=$(ls ${MOUNTPOINT}/boot | grep "initramfs" | grep -v "fallback"| sort | tail -n 1)
+	    
+	    # initramfs needs to be recomiled with raid support
+	    manjaro-chroot /mnt mkinitcpio -c /etc/mkinitcpio.conf -g /boot/${newest_initramfs} -k ${newest_kernel}
+	    
+    fi
 
     recheck_luks
 
