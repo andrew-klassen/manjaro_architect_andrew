@@ -510,10 +510,11 @@ raid_level_menu() {
     declare -i loopmenu=1
     while ((loopmenu)); do
         RAID_OPT=""
-        DIALOG "RAID " --menu "\nSelect a RAID type.\n " 20 75 5 \
+        DIALOG "RAID " --menu "\nSelect a RAID level.\n " 20 75 6 \
 	    "0" "disk striping" \
         "1" "mirroring" \
         "5" "distributed parity, (1 drive tolerance, requires 3 disks)" \
+        "6" "double parity, (2 drive tolerance, requires 4 disks)" \
         "10" "raid 1+0, (requires 4 disks)" \
         "$_Back" "-" 2>${ANSWER}
 
@@ -524,6 +525,8 @@ raid_level_menu() {
                 ;;
             "5") raid_array_menu 5
                 ;; 
+            "6") raid_array_menu 6
+                ;;
 	        "10") raid_array_menu 10
 		        ;;
             *) loopmenu=0
@@ -538,20 +541,38 @@ raid_create() {
     RAID_DEVICES=${1}
     RAID_DEVICE_NUMBER=$(echo ${1} | wc -w)
     RAID_LEVEL=${2}
+    RAID_DEVICE_NAME=${3}
 
     # creates the array
-    mdadm --create --verbose --level=${RAID_LEVEL} --metadata=1.2 --raid-devices=${RAID_DEVICE_NUMBER} /dev/md/md0 ${RAID_DEVICES}  
+    mdadm --create --level=${RAID_LEVEL} --metadata=1.2 --raid-devices=${RAID_DEVICE_NUMBER} /dev/md/${RAID_DEVICE_NAME} ${RAID_DEVICES}  
         
-    # array is disassembled and reassembled to prevent the array from being named /dev/md/md
-    mdadm --detail --scan >> /etc/mdadm.conf
-    mdadm --stop /dev/md/md0
-    mdadm --assemble --scan
+    # array is disassembled and reassembled to prevent the array from being named /dev/md/md127
+    # the check of /etc/mdadm.conf is preformed to prevent the user from adding duplicate entries
+    if [[ $(cat /etc/mdadm.conf | grep "/dev/md/${RAID_DEVICE_NAME}" | wc -l) == 0 ]]; then
+        mdadm --detail --scan | grep -e "/dev/md/${RAID_DEVICE_NAME}" -e "/dev/md/md127" >> /etc/mdadm.conf
+        mdadm --stop /dev/md/${RAID_DEVICE_NAME}
+        mdadm --assemble --scan
+    fi
+    
+    DIALOG "Array Created" --msgbox "\nThe RAID array has been created successfully.\n\nmdadm --create --level=${RAID_LEVEL} --metadata=1.2 --raid-devices=${RAID_DEVICE_NUMBER} /dev/md/${RAID_DEVICE_NAME} ${RAID_DEVICES}\n" 0 0
 
+}
+
+raid_get_array_name() {
+
+    DIALOG "Device Name" --inputbox "\nWhat would you like the RAID device to named? \nFor an example, its a standard for the first raid device in system to be named md0. \n\n(don't prefix with /dev/md/)\n" 0 0 2>${ANSWER}
+
+    raid_device_name=$(cat ${ANSWER})
+    
+    if [[ ${raid_device_name} != "" ]]; then
+        raid_create "${1}" ${2} ${raid_device_name}
+    fi
+    
 }
 
 raid_array_menu() {
 
-    # Find LVM appropriate partitions.
+    # find raid partitions.
     INCLUDE_PART='part\|crypt'
     umount_partitions
     find_partitions
@@ -560,7 +581,7 @@ raid_array_menu() {
     PARTITIONS=$(echo $PARTITIONS | sed 's/M\|G\|T/& off/g')
     RAID_LEVEL=${1}
     
-    # Select the partition(s) for the Volume Group
+    # select partitions for the array
     echo "" > $ANSWER
     while [[ $(cat ${ANSWER}) == "" ]]; do
         DIALOG "Partion Select" --checklist "\nSelect the partitions you want to use for this RAID array.\n\n$_UseSpaceBar\n " 0 0 12 ${PARTITIONS} 2> ${ANSWER} 
@@ -568,7 +589,7 @@ raid_array_menu() {
     
     ANSWERS=$(cat ${ANSWER})
 
-    raid_create "${ANSWERS[@]}" ${RAID_LEVEL}
+    raid_get_array_name "${ANSWERS[@]}" ${RAID_LEVEL}
     
 }
 
