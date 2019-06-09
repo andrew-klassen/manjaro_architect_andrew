@@ -228,7 +228,7 @@ prep_menu() {
           "1" "$_VCKeymapTitle" \
           "2" "$_DevShowOpt" \
           "3" "$_PrepPartDisk|>" \
-	      "4" "RAID (optional)|>" \
+	      "4" "$_PrepRAID|>" \
 	      "5" "$_PrepLVM $_PrepLVM2|>" \
           "6" "$_PrepLUKS|>" \
           "7" "$_PrepZFS|>" \

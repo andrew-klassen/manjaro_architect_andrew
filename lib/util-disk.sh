@@ -510,12 +510,12 @@ raid_level_menu() {
     declare -i loopmenu=1
     while ((loopmenu)); do
         RAID_OPT=""
-        DIALOG "RAID " --menu "\nSelect a RAID level.\n " 20 75 6 \
-	    "0" "disk striping" \
-        "1" "mirroring" \
-        "5" "distributed parity, (1 drive tolerance, requires 3 disks)" \
-        "6" "double parity, (2 drive tolerance, requires 4 disks)" \
-        "10" "raid 1+0, (requires 4 disks)" \
+        DIALOG "RAID" --menu "\n$_RAIDLevelTitle\n" 20 75 6 \
+	    "0" "$_RAIDLevel0" \
+        "1" "$_RAIDLevel1" \
+        "5" "$_RAIDLevel5" \
+        "6" "$_RAIDLevel6" \
+        "10" "$_RAIDLevel10" \
         "$_Back" "-" 2>${ANSWER}
 
         case $(cat ${ANSWER}) in
@@ -554,13 +554,13 @@ raid_create() {
         mdadm --assemble --scan
     fi
     
-    DIALOG "Array Created" --msgbox "\nThe RAID array has been created successfully.\n\nmdadm --create --level=${RAID_LEVEL} --metadata=1.2 --raid-devices=${RAID_DEVICE_NUMBER} /dev/md/${RAID_DEVICE_NAME} ${RAID_DEVICES}\n" 0 0
+    DIALOG "$__ArrayCreatedTitle" --msgbox "\n$_ArrayCreatedDescription\n\nmdadm --create --level=${RAID_LEVEL} --metadata=1.2 --raid-devices=${RAID_DEVICE_NUMBER} /dev/md/${RAID_DEVICE_NAME} ${RAID_DEVICES}\n" 0 0
 
 }
 
 raid_get_array_name() {
 
-    DIALOG "Device Name" --inputbox "\nWhat would you like the RAID device to named? \nFor an example, its a standard for the first raid device in system to be named md0. \n\n(don't prefix with /dev/md/)\n" 0 0 2>${ANSWER}
+    DIALOG "$_DeviceNameTitle" --inputbox "\n$_DeviceNameDescription\n\n$_DeviceNamePrefixWarning\n" 0 0 2>${ANSWER}
 
     raid_device_name=$(cat ${ANSWER})
     
@@ -584,7 +584,7 @@ raid_array_menu() {
     # select partitions for the array
     echo "" > $ANSWER
     while [[ $(cat ${ANSWER}) == "" ]]; do
-        DIALOG "Partion Select" --checklist "\nSelect the partitions you want to use for this RAID array.\n\n$_UseSpaceBar\n " 0 0 12 ${PARTITIONS} 2> ${ANSWER} 
+        DIALOG "$_PartitionSelectTitle" --checklist "\n$__PartitionSelectDescription\n\n$_UseSpaceBar\n " 0 0 12 ${PARTITIONS} 2> ${ANSWER} 
     done
     
     ANSWERS=$(cat ${ANSWER})
