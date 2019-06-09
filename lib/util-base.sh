@@ -335,14 +335,12 @@ install_base() {
                     sed -i 's/\<block\>/& encrypt/' ${MOUNTPOINT}/etc/mkinitcpio.conf
                     sed -i 's/\<autodetect\>/& keymap/' ${MOUNTPOINT}/etc/mkinitcpio.conf
                     sed -i 's/\<autodetect\>/& keyboard/' ${MOUNTPOINT}/etc/mkinitcpio.conf
-                    luks_device_name=$(echo ${lsblk_lines[i]} | cut -f2 -d' ')
-                    luks_needed=true
                     continue
             fi
             if [[ $(echo ${lsblk_lines[i]} | grep "^raid" | wc -l) > 0 ]]; then
                     raid_needed=true
                     raid_device_name=$(echo ${lsblk_lines[i]} | cut -f2 -d' ')
-                    break
+                    continue
             fi
             if [[ $(echo ${lsblk_lines[i]} | grep "^part" | wc -l) > 0 ]]; then
                     break
@@ -368,12 +366,7 @@ install_base() {
         newest_initramfs=$(ls ${MOUNTPOINT}/boot | grep "initramfs" | grep -v "fallback"| sort | tail -n 1)
         
         # initramfs needs to be recomiled with raid support
-        manjaro-chroot /mnt mkinitcpio -c /etc/mkinitcpio.conf -g /boot/${newest_initramfs} -k ${newest_kernel}
-        
-        # update grub for luks if needed
-        if [ "$luks_needed" = true ]; then
-            sed -i "s/^GRUB_CMDLINE_LINUX=\"\"/GRUB_CMDLINE_LINUX=\"cryptdevice=\/dev\/md\/${raid_device_name}:${luks_device_name}\"/g" ${MOUNTPOINT}/etc/default/grub
-        fi
+        manjaro-chroot ${MOUNTPOINT} mkinitcpio -c /etc/mkinitcpio.conf -g /boot/${newest_initramfs} -k ${newest_kernel}
     
     fi
 
@@ -430,6 +423,39 @@ install_bootloader() {
     else
         HIGHLIGHT_SUB=2
     fi
+    
+    # put all the lines of lsblk, before the mountpoint, into an array
+    # iterate through the array backwards util a partition is reached
+    # if luks and raid was involved anywere between the mountpoint and partition, 
+    # then grub configuration for raid and luks is needed
+    
+    old_ifs="$IFS"
+    IFS=$'\n'
+    lsblk_lines=($(lsblk -lno TYPE,NAME,MOUNTPOINT | sed  "/\/${MOUNTPOINT:1}$/q"))
+    IFS="$old_ifs"
+        
+    for (( i=${#lsblk_lines[@]}-1 ; i>=0 ; i-- )) ; do
+        if [[ $(echo ${lsblk_lines[i]} | grep "^crypt" | wc -l) > 0 ]]; then
+                luks_device_name=$(echo ${lsblk_lines[i]} | cut -f2 -d' ')
+                luks_needed=true
+                continue
+        fi
+        if [[ $(echo ${lsblk_lines[i]} | grep "^raid" | wc -l) > 0 ]]; then
+                raid_device_name=$(echo ${lsblk_lines[i]} | cut -f2 -d' ')
+                raid_needed=true
+                continue
+        fi
+        if [[ $(echo ${lsblk_lines[i]} | grep "^part" | wc -l) > 0 ]]; then
+                break
+        fi
+    done
+    
+    # update grub for luks if needed
+    if [ "$luks_needed" = true ] && [ "$raid_needed" = true ]; then
+        sed -i "s/^GRUB_CMDLINE_LINUX=\"\"/GRUB_CMDLINE_LINUX=\"cryptdevice=\/dev\/md\/${raid_device_name}:${luks_device_name}\"/g" ${MOUNTPOINT}/etc/default/grub
+        manjaro-chroot ${MOUNTPOINT} update-grub
+    fi
+    
 }
 
 uefi_bootloader() {
